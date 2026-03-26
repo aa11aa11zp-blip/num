@@ -4,92 +4,93 @@ from datetime import datetime
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 
 # ---------------- CONFIG ----------------
-API_URL = "http://147.135.212.197/crapi/st/viewstats"
-TOKEN = "RFdUREJBUzR9T4dVc49ndmFra1NYV5CIhpGVcnaOYmqHhJZXfYGJSQ=="
-params = {"token": TOKEN}
+API_URL = "http://147.135.212.197/crapi/st/viewstats"  # ستاسو API
+API_TOKEN = "RFdUREJBUzR9T4dVc49ndmFra1NYV5CIhpGVcnaOYmqHhJZXfYGJSQ=="
 
 TELEGRAM_BOT_TOKEN = "8604072281:AAGvz-xBuV9_Fljc2ceD7GbfoP0tHXx0Zvo"
-TELEGRAM_GROUP_ID = -5154192080
+TELEGRAM_GROUP_ID = -5154192080  # ستاسو ټیلیګرام چټ / ګروپ
 
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
 
-# ---------------- ESCAPE ----------------
-def escape_v2(text):
+# ---------------- HELPERS ----------------
+def escape_markdown(text):
+    """Escape special MarkdownV2 characters"""
     chars = r'_*[]()~`>#+-=|{}.!'
     return ''.join(['\\' + c if c in chars else c for c in str(text)])
 
-# ---------------- FETCH ----------------
-def fetch_sms():
+def fetch_numbers():
+    """Fetch new numbers from API"""
     try:
-        res = requests.get(API_URL, params=params, timeout=20)
+        res = requests.get(API_URL, params={"token": API_TOKEN}, timeout=20)
+        res.raise_for_status()
         data = res.json()
         return data if isinstance(data, list) else []
     except Exception as e:
         print("API ERROR:", e)
         return []
 
-# ---------------- TIME ----------------
-def parse_time(t):
+def parse_time(timestr):
+    """Parse timestamp string"""
     try:
-        return datetime.strptime(t, "%Y-%m-%d %H:%M:%S")
+        return datetime.strptime(timestr, "%Y-%m-%d %H:%M:%S")
     except:
         return None
 
-# ---------------- START ----------------
-last_seen = None
+# ---------------- MAIN LOOP ----------------
+last_seen_time = None
 print("🚀 Number Forwarder Started...")
 
 while True:
-    data = fetch_sms()
+    entries = fetch_numbers()
 
-    if not data:
+    if not entries:
         time.sleep(30)
         continue
 
-    new = []
+    new_entries = []
 
-    if last_seen is None:
-        new = data[:5]  # first few entries if starting
-        if new:
-            last_seen = parse_time(new[0][3])
+    if last_seen_time is None:
+        new_entries = entries[:5]  # first batch on start
+        if new_entries:
+            last_seen_time = parse_time(new_entries[0][3])
     else:
-        for i in data:
-            t = parse_time(i[3])
-            if t and t > last_seen:
-                new.append(i)
+        for entry in entries:
+            ts = parse_time(entry[3])
+            if ts and ts > last_seen_time:
+                new_entries.append(entry)
 
-    if new:
-        last_seen = parse_time(new[0][3])
+    if new_entries:
+        last_seen_time = parse_time(new_entries[0][3])
 
-    for entry in new[::-1]:
+    for entry in new_entries[::-1]:
         try:
-            app = entry[0]
-            phone = entry[1]
-            time_str = entry[3]
+            service_name = entry[0]
+            phone_number = entry[1]
+            timestamp = entry[3]
 
-            # mask number if needed
-            masked = phone[:5] + "**" + phone[-4:]
+            # Mask number if you want, or leave full
+            masked_number = phone_number[:5] + "**" + phone_number[-4:] if len(phone_number) >= 10 else phone_number
 
-            text = f"""📱 *New Number Found*
+            message_text = f"""📱 *New Number Found*
 
-⏰ Time: {escape_v2(time_str)}
-🌐 Service: {escape_v2(app)}
-📞 Number: `{escape_v2(masked)}`
+⏰ Time: {escape_markdown(timestamp)}
+🌐 Service: {escape_markdown(service_name)}
+📞 Number: `{escape_markdown(masked_number)}`
 
-──────────────"""
+─────────────────"""
 
-            keyboard = [
-                [InlineKeyboardButton("📢 Join Channel", url="https://t.me/ProTech43")]
-            ]
+            # Inline button for your channel
+            keyboard = [[InlineKeyboardButton("📢 Join Channel", url="https://t.me/ProTech43")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
 
+            # Send message
             bot.send_message(
                 chat_id=TELEGRAM_GROUP_ID,
-                text=text,
+                text=message_text,
                 parse_mode="MarkdownV2",
-                reply_markup=InlineKeyboardMarkup(keyboard)
+                reply_markup=reply_markup
             )
-
-            print("✅ Sent Number:", phone)
+            print("✅ Sent:", phone_number)
 
         except Exception as e:
             print("SEND ERROR:", e)
